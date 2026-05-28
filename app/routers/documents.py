@@ -10,7 +10,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from app.db.memory_store import store
 from app.models.document import DocStatus, DocumentResponse, DocumentListItem
-from app.models.section import SectionData, SectionUpdate, ParsedResult
+from app.models.section import SectionData, SectionUpdate, ParsedResult, TableInfo
 from app.services.parser import WordParser, compute_md5, scan_styles
 from app.services.storage import save_upload_file
 from app.services import converter
@@ -177,16 +177,41 @@ def _process_document_background(doc_id: str):
 
 
 def _screenshot_tables(doc_id: str, pdf_path: str, sections: list[SectionData]):
-    """为所有表格生成 PDF 截图"""
-    tables_dir = os.path.join(settings.storage_path, doc_id, "tables")
-    table_idx = 0
+    """全页渲染 + 表格→页码映射, 不再裁剪单表截图"""
+    pages_dir = os.path.join(settings.storage_path, doc_id, "pages")
+    rel_prefix = f"/storage/doc_assets/{doc_id}"
+
+    # 1. 渲染所有 PDF 页面为高清图片
+    page_paths = converter.render_pages(pdf_path, pages_dir, dpi=200)
+
+    # 2. 检测哪些页包含表格
+    table_page_nums = converter.detect_table_pages(pdf_path)
+
+    # 3. 统计所有 docx 表格 (按解析顺序)
+    all_tables: list[TableInfo] = []
     for sec in sections:
-        for tbl in sec.tables:
-            if tbl.caption:
-                img_path = converter.screenshot_table_from_pdf(
-                    pdf_path, tbl.caption, tables_dir, table_index=table_idx
-                )
-                table_idx += 1
+        all_tables.extend(sec.tables)
+
+    n_docx = len(all_tables)
+    n_pdf_pages = len(table_page_nums)
+
+    if n_docx == 0:
+        return
+
+    # 4. 将 docx 表格映射到 PDF 页面
+    #    每个 docx 表至少分配一页, 如果 pdfplumber 漏检则兜底为全部分配页面
+    if n_pdf_pages == 0:
+        # 完全检测不到表格 → 把所有页面都给每个表 (兜底, 大模型自己找)
+        all_page_rel = [f"{rel_prefix}/pages/page_{i + 1}.png" for i in range(len(page_paths))]
+        for tbl in all_tables:
+            tbl.page_images = all_page_rel
+    else:
+        for i, tbl in enumerate(all_tables):
+            if i < n_pdf_pages:
+                page_num = table_page_nums[i]
+            else:
+                page_num = table_page_nums[-1]
+            tbl.page_images = [f"{rel_prefix}/pages/page_{page_num}.png"]
 
 
 # ---- 样式扫描 ----

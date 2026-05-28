@@ -30,11 +30,11 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS - 开发环境允许所有来源
+# CORS - 允许所有来源 (公开 API, 无 cookie 认证)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

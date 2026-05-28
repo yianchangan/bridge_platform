@@ -172,7 +172,6 @@ class WordParser:
 
                     # 保存结构化 JSON
                     json_rel_path = None
-                    img_rel_path = None
                     parse_success = True
 
                     try:
@@ -190,14 +189,10 @@ class WordParser:
                     except Exception:
                         parse_success = False
 
-                    # 截图会在转换服务中异步生成, 这里先预留路径
-                    img_name = self._unique_filename(self.tables_dir, safe_cap, "png")
-                    img_rel_path = f"{self.rel_prefix}/tables/{img_name}"
-
                     current["tables"].append(
                         TableInfo(
                             caption=last_seen_table_caption,
-                            image_path=img_rel_path,
+                            page_images=[],  # 后台渲染阶段填充
                             json_path=json_rel_path,
                             data=table_data if table_data else None,
                             parse_success=parse_success,
@@ -205,9 +200,9 @@ class WordParser:
                     )
 
                     if parse_success and table_data:
-                        current["text"] += f"【表: {last_seen_table_caption} | {img_rel_path} | {json_rel_path}】\n"
+                        current["text"] += f"【表: {last_seen_table_caption} | {json_rel_path}】\n"
                     else:
-                        current["text"] += f"【表(图片): {last_seen_table_caption} | {img_rel_path}】\n"
+                        current["text"] += f"【表(图片): {last_seen_table_caption}】\n"
 
                     last_seen_table_caption = None
 

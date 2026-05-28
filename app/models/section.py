@@ -11,17 +11,9 @@ class ImageInfo(BaseModel):
     original_name: Optional[str] = Field(default=None, description="原始提取文件名")
 
 
-class TableData(BaseModel):
-    caption: str = Field(..., description="表标题, 如 '表2.4-1主要技术指标'")
-    image_path: Optional[str] = Field(default=None, description="表格截图PNG路径")
-    json_path: Optional[str] = Field(default=None, description="结构化JSON路径")
-    data: Optional[list[list[str]]] = Field(default=None, description="表格二维数组数据")
-    parse_success: bool = Field(default=True, description="表格结构化解析是否成功")
-
-
 class TableInfo(BaseModel):
     caption: str = Field(..., description="表标题")
-    image_path: Optional[str] = None
+    page_images: list[str] = Field(default_factory=list, description="包含该表格的页面图片路径列表")
     json_path: Optional[str] = None
     data: Optional[list[list[str]]] = None
     parse_success: bool = True

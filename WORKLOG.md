@@ -86,3 +86,51 @@
 - [ ] 请求体大小限制
 - [ ] Docker 化 (Python + LibreOffice + PostgreSQL)
 - [ ] `print()` → `logging` 日志改造
+
+---
+
+## 2026-05-26
+
+### ✅ 待办优先级重新定义
+
+与团队讨论后对后续工作重新排序：
+
+- **测试** → 暂缓。手动验证已通过，等解析器稳定后再补自动化测试。
+- **PostgreSQL** → 重新定义为"审核通过后入库通道"，不是替换 JSON。JSON 先作为审核介质，审核通过再入 PG。
+- **请求体大小限制** → 内部工具阶段暂缓，对外部署时再加。
+- **Docker** → 解决 Python + LibreOffice + PG 三依赖的部署痛点，多人部署时价值大。
+- **logging** → 现阶段 `print()` 够用，等代码稳定不再频繁改动时再切。
+- **用户认证、知识图谱、大模型标签、前端** → 未讨论，后续排期。
+
+---
+
+## 2026-05-27
+
+### ✅ Git 仓库搭建 + 双远程配置
+
+- 本地项目 `git init`，纳入版本控制
+- **GitHub 仓库**：创建 https://github.com/yianchangan/bridge_platform，添加为 `origin` 远程
+- **服务器裸仓库**：在 `10.84.12.74` 执行 `git init --bare /data/git/bridge_platform.git`，添加为 `server` 远程
+- 初始提交 `03ff99b Feat: 桥梁方案数据整治平台 v1.0`（20 文件，1701 行），同时推送到 `origin` 和 `server`
+
+### ✅ GIT_GUIDE.md 编写
+
+- 针对本项目的双远程（GitHub + 服务器）架构编写的 Git 使用指南
+- 覆盖：Git 基础概念、工作区/暂存区/仓库、远程仓库原理、裸仓库 vs 工作目录、push/pull 数据流、分支策略、日常命令速查
+- 包含服务器部署三步走操作说明（clone 工作目录 → 安装依赖 → 启动服务）
+
+### ✅ 部署通道建立
+
+```
+本地 Windows ──push──→ origin (GitHub, 备份)
+           ──push──→ server (10.84.12.74 裸仓库, 中转站)
+                         └──pull──→ /data/bridge_platform/ (运行的服务)
+```
+
+### 📋 明日待完成计划
+
+- [ ] **服务器部署上线**：SSH 到服务器，clone 工作目录到 `/data/bridge_platform/`，安装依赖（`pip install -r requirements.txt`，`apt install libreoffice`），启动 uvicorn 服务
+- [ ] **端到端验证**：在服务器上用真实桥梁施工方案 Word 文档跑通"上传 → 样式扫描 → 填写配置 → 解析"完整流程
+- [ ] **WORKLOG.md 补充**：将 WORKLOG.md 也纳入 git 跟踪，之后每次工作日志也作为仓库的一部分管理
+- [ ] **PostgreSQL 入库通道设计**：开始设计"审核通过后 JSON → PG"的表结构和入库逻辑
+- [ ] **Docker 调研**：调研 LibreOffice + Python + PostgreSQL 三依赖的 Docker 化方案

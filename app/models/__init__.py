@@ -10,7 +10,6 @@ from .section import (
     SectionUpdate,
     ImageInfo,
     TableInfo,
-    TableData,
     TagInfo,
     ParsedResult,
 )

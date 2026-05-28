@@ -18,6 +18,14 @@ async def get_image(doc_id: str, filename: str):
     return FileResponse(path, media_type="image/png")
 
 
+@router.get("/{doc_id}/pages/{filename}", summary="获取 PDF 页面渲染图片")
+async def get_page_image(doc_id: str, filename: str):
+    path = os.path.join(settings.storage_path, doc_id, "pages", filename)
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="页面图片不存在")
+    return FileResponse(path, media_type="image/png")
+
+
 @router.get("/{doc_id}/tables/{filename}", summary="获取表格资源 (JSON/PNG)")
 async def get_table_asset(doc_id: str, filename: str):
     path = os.path.join(settings.storage_path, doc_id, "tables", filename)
