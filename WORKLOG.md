@@ -134,3 +134,104 @@
 - [ ] **WORKLOG.md 补充**：将 WORKLOG.md 也纳入 git 跟踪，之后每次工作日志也作为仓库的一部分管理
 - [ ] **PostgreSQL 入库通道设计**：开始设计"审核通过后 JSON → PG"的表结构和入库逻辑
 - [ ] **Docker 调研**：调研 LibreOffice + Python + PostgreSQL 三依赖的 Docker 化方案
+
+---
+
+## 2026-05-28
+
+### ✅ 服务器部署上线 (systemd 持久化)
+
+- SSH 到 `10.84.12.74`，工作目录已存在 `/data/bridge_platform/`
+- 安装缺失依赖：`python-docx`, `pdfplumber`, `pdf2image`, `sentence-transformers`, `faiss-cpu`, `torch`
+- 创建用户级 systemd 服务 `bridge-platform.service`，端口 **10604**
+- `loginctl enable-linger` 确保 SSH 退出后服务不挂
+- 崩溃自动重启 (`Restart=always`, 3s 间隔)
+- 原 10608 端口的旧 uvicorn 进程已清理
+
+### ✅ CORS 修复
+
+- `allow_credentials=True` + `allow_origins=["*"]` 浏览器会拒绝 → 改为 `allow_credentials=False`
+- 原因：公开 API 无 cookie 认证，不需要 credentials
+
+### ✅ 表格截图方案重构 (全页渲染 + 图→表页码映射)
+
+**问题**：pdfplumber `find_tables()` 对中文桥梁施工方案表格检测极不可靠 (合并单元格、无边框、跨页)，bbox 裁剪经常不全或直接漏检。
+
+**新方案**：弃用单表裁剪，改全页渲染 + 页码映射：
+
+```
+Word → LibreOffice → PDF
+                      ├→ render_pages() → page_1.png, page_2.png, ...
+                      └→ detect_table_pages() → 页级检测 (远比 bbox 可靠)
+                                                         ↓
+                                  映射: docx第N个表 → page_X.png
+                                  漏检兜底: 所有页面分给每个表
+```
+
+**改动**：
+- `converter.py`: 删除 `screenshot_table_from_pdf`，新增 `render_pages` (pdf2image 全页渲染) + `detect_table_pages` (pdfplumber 页级存在性检测)
+- `models/section.py`: `TableInfo.image_path` → `page_images: list[str]`，删除未使用的 `TableData`
+- `parser.py`: 表格初始化 `page_images=[]`，后台渲染阶段填充
+- `assets.py`: 新增 `GET /{doc_id}/pages/{filename}` 页面图片路由
+- 设计理念：图片给多模态大模型看，JSON 结构化数据做精确检索，两者互补
+
+### ✅ 人员追溯字段
+
+- `DocumentResponse` / `DocumentListItem` 新增 `uploaded_by` 和 `reviewed_by`
+- `POST /upload` → 前端填上传人
+- `POST /{doc_id}/commit` → 前端填审核人
+- Swagger UI 默认占位文字 `"string"` 过滤为 `None`
+
+### ✅ 向量索引入库 (bge-m3 + FAISS + SQLite)
+
+同事提供了四层 FAISS 参考代码，在此基础上适配：
+
+**架构**：
+| 层级 | 索引 | 用途 |
+|------|------|------|
+| 第1层 | `doc_names.faiss` | 按文档名语义检索 |
+| 第2层 | `chapters_XXXX.faiss` | 按章节标题检索 |
+| 第3层 | `section_XXXX_XXXX.faiss` | 按正文内容块检索 |
+| 第4层 | `assets_XXXX.faiss` | 按图表标题检索 |
+
+- **模型**：`bge-m3` (BAAI 中文优化, 1024维)，服务器 CPU 推理
+- **元数据**：SQLite 五张表 (doc/chapter/chunk/image/table)，适配 `page_images` 和 `doc_uuid` 关联
+- **幂等入库**：同篇文档重复调 index 自动覆盖
+- **触发时机**：commit 审核通过后后台自动执行
+- **HF 镜像**：`hf-mirror.com` 环境变量已配，国内可下载模型
+- 服务器 `poppler-utils` 缺失导致 pdf2image 渲染失败——待安装
+
+### ✅ PDF 预览接口重构
+
+- `GET /{doc_id}/preview.pdf` → `StreamingResponse` + `Content-Disposition: inline` (浏览器内嵌)
+- `GET /{doc_id}/download.pdf` → `FileResponse` + `Content-Disposition: attachment` (强制下载)
+- 256KB 分块流式传输，支持 `Accept-Ranges: bytes`
+
+### ✅ 向量索引管理 API
+
+| 端点 | 用途 |
+|------|------|
+| `GET /api/index/status` | 索引概览 (文档数/chunk数/磁盘占用/文档列表) |
+| `POST /api/index/rebuild` | 全量重建索引 (后台异步) |
+| `DELETE /api/index/documents/{id}` | 从索引中删除某篇文档 |
+
+indexer 支持：
+- `delete_by_uuid` → SQLite 级联删除 + FAISS 文件清理 + doc_names 重建
+- `get_status` → 统计信息 + 文档清单
+
+### ✅ 文档生命周期管理
+
+| 端点 | 用途 |
+|------|------|
+| `GET /api/documents/stats` | 按状态统计 + 磁盘占用估算 |
+| `POST /api/documents/cleanup` | 批量清理死文档，body: `["UPLOADED", "FAILED"]` |
+| `DELETE /api/documents/{id}` | 删除文档 → 同步清磁盘 + 向量索引 |
+
+**保护机制**：`COMPLETED` 在 cleanup 中硬拦截，入库成品不可误删。
+
+### 📋 待验证
+
+- [ ] 服务器安装 `poppler-utils` (`sudo apt install -y poppler-utils`)
+- [ ] 重新上传文档跑通 "上传 → 样式扫描 → 解析 → 审核 → commit → 索引" 全流程
+- [ ] 全页渲染表格截图效果验证 (多模态大模型分析)
+- [ ] 向量检索精度验证 (bge-m3 在桥梁领域的语义匹配效果)
