@@ -7,6 +7,11 @@ import sqlite3
 import time
 from typing import Optional
 
+# 必须在 import sentence_transformers 之前设置
+os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
+os.environ.setdefault("HF_HUB_ENDPOINT", "https://hf-mirror.com")
+os.environ.setdefault("HUGGINGFACE_HUB_URL", "https://hf-mirror.com")
+
 import numpy as np
 
 
