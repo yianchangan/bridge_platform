@@ -19,6 +19,16 @@ from app.config import settings
 router = APIRouter(prefix="/api/documents", tags=["文档管理"])
 
 
+def _sanitize_person(value: Optional[str]) -> Optional[str]:
+    """过滤 Swagger 默认占位文字 'string'"""
+    if value is None:
+        return None
+    stripped = value.strip()
+    if stripped.lower() == "string" or stripped == "":
+        return None
+    return stripped
+
+
 # ---- 上传 (仅保存 + 自动扫描样式) ----
 
 @router.post("/upload", response_model=DocumentResponse, summary="上传 Word 文档 (仅保存并扫描样式, 不解析)")
@@ -51,7 +61,7 @@ async def upload_document(
         bridge_type=bridge_type,
         doc_type=doc_type,
         md5=md5,
-        uploaded_by=uploaded_by,
+        uploaded_by=_sanitize_person(uploaded_by),
     )
 
     # 移至正式目录
@@ -288,7 +298,7 @@ async def commit_document(
         raise HTTPException(status_code=404, detail="文档不存在")
     if doc.status not in (DocStatus.pending_review, DocStatus.completed):
         raise HTTPException(status_code=400, detail="文档状态不允许入库")
-    store.commit_document(doc_id, reviewed_by=reviewed_by)
+    store.commit_document(doc_id, reviewed_by=_sanitize_person(reviewed_by))
 
     # 后台触发向量索引入库
     _index_document_background(doc_id)
