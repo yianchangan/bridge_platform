@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.db.memory_store import store
-from app.routers import documents, assets
+from app.routers import documents, assets, index_router
 
 
 @asynccontextmanager
@@ -42,6 +42,7 @@ app.add_middleware(
 # 注册路由
 app.include_router(documents.router)
 app.include_router(assets.router)
+app.include_router(index_router.router)
 
 
 @app.get("/", tags=["健康检查"])

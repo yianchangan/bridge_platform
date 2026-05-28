@@ -14,6 +14,7 @@ from app.models.section import SectionData, SectionUpdate, ParsedResult, TableIn
 from app.services.parser import WordParser, compute_md5, scan_styles
 from app.services.storage import save_upload_file
 from app.services import converter
+from app.services.indexer import DocumentIndexer
 from app.config import settings
 
 router = APIRouter(prefix="/api/documents", tags=["文档管理"])
@@ -336,18 +337,93 @@ async def manual_index(doc_id: str):
     return {"success": True, "doc_id": doc_id, "message": "已触发后台索引入库"}
 
 
+# ---- 文档统计与清理 ----
+
+@router.get("/stats", summary="文档存储统计概览")
+async def get_document_stats():
+    docs = store.list_documents()
+    by_status: dict[str, int] = {}
+    for d in docs:
+        s = d.status.value if hasattr(d.status, 'value') else d.status
+        by_status[s] = by_status.get(s, 0) + 1
+
+    # 磁盘占用估算
+    total_mb = 0
+    storage_root = settings.storage_path
+    if os.path.exists(storage_root):
+        for doc_dir_name in os.listdir(storage_root):
+            doc_dir = os.path.join(storage_root, doc_dir_name)
+            if os.path.isdir(doc_dir):
+                for root, dirs, files in os.walk(doc_dir):
+                    for f in files:
+                        fp = os.path.join(root, f)
+                        try:
+                            total_mb += os.path.getsize(fp) / (1024 * 1024)
+                        except OSError:
+                            pass
+
+    return {
+        "total": len(docs),
+        "by_status": by_status,
+        "disk_usage_mb": round(total_mb, 2),
+    }
+
+
+@router.post("/cleanup", summary="批量清理指定状态的文档 (COMPLETED 受保护)")
+async def cleanup_documents(statuses: list[str]):
+    """清理指定状态的文档及关联资源 (磁盘 + 向量索引). COMPLETED 状态不可清理."""
+    allowed = {"UPLOADED", "UPLOADING", "CONVERTING", "PARSING", "PENDING_REVIEW", "FAILED"}
+    cleaned = 0
+    skipped = 0
+
+    all_docs = store.list_documents()
+    for d in all_docs:
+        s = d.status.value if hasattr(d.status, 'value') else d.status
+        if s not in statuses:
+            continue
+        if s == "COMPLETED":
+            skipped += 1
+            continue
+        if s not in allowed:
+            skipped += 1
+            continue
+
+        doc_dir = os.path.join(settings.storage_path, d.id)
+        if os.path.exists(doc_dir):
+            shutil.rmtree(doc_dir)
+
+        # 同步删索引
+        try:
+            indexer = DocumentIndexer(settings.index_db_path, settings.faiss_dir, settings.db_path)
+            indexer.delete_by_uuid(d.id)
+        except Exception as e:
+            print(f"[清理] 索引删除失败 {d.id}: {e}")
+
+        store.delete_document(d.id)
+        cleaned += 1
+
+    return {"success": True, "cleaned": cleaned, "skipped": skipped}
+
+
 # ---- 删除文档 ----
 
-@router.delete("/{doc_id}", summary="删除文档及所有资源")
+@router.delete("/{doc_id}", summary="删除文档及所有资源 (含向量索引)")
 async def delete_document(doc_id: str):
     doc = store.get_document(doc_id)
     if not doc:
         raise HTTPException(status_code=404, detail="文档不存在")
 
-    # 删除资源目录
+    # 删除磁盘资源
     doc_dir = os.path.join(settings.storage_path, doc_id)
     if os.path.exists(doc_dir):
         shutil.rmtree(doc_dir)
+
+    # 同步删向量索引
+    try:
+        indexer = DocumentIndexer(settings.index_db_path, settings.faiss_dir, settings.db_path)
+        indexer.delete_by_uuid(doc_id)
+    except Exception as e:
+        print(f"[删除] 索引清理失败 {doc_id}: {e}")
 
     store.delete_document(doc_id)
     return {"success": True}
