@@ -1,13 +1,25 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from app.config import settings
 
 router = APIRouter(prefix="/storage/doc_assets", tags=["静态资源"])
+
+
+def _find_pdf(doc_id: str) -> Path:
+    """查找文档目录下的 PDF 文件, 返回完整路径."""
+    doc_dir = os.path.join(settings.storage_path, doc_id)
+    if not os.path.exists(doc_dir):
+        return None
+    for f in os.listdir(doc_dir):
+        if f.endswith(".pdf"):
+            return Path(doc_dir) / f
+    return None
 
 
 @router.get("/{doc_id}/images/{filename}", summary="获取提取的图片")
@@ -40,21 +52,38 @@ async def get_table_asset(doc_id: str, filename: str):
         return FileResponse(path)
 
 
-@router.get("/{doc_id}/preview.pdf", summary="获取 PDF 预览文件")
+@router.get("/{doc_id}/preview.pdf", summary="PDF 流式预览 (浏览器内嵌显示)")
 async def get_preview_pdf(doc_id: str):
-    doc_dir = os.path.join(settings.storage_path, doc_id)
-    if not os.path.exists(doc_dir):
-        raise HTTPException(status_code=404, detail="文档目录不存在")
+    pdf_path = _find_pdf(doc_id)
+    if pdf_path is None:
+        raise HTTPException(status_code=404, detail="PDF 预览文件不存在")
 
-    for f in os.listdir(doc_dir):
-        if f.endswith(".pdf"):
-            return FileResponse(
-                os.path.join(doc_dir, f),
-                media_type="application/pdf",
-                filename=f"{doc_id}_preview.pdf",
-            )
+    def file_iterator():
+        chunk_size = 256 * 1024  # 256KB
+        with open(pdf_path, "rb") as f:
+            while chunk := f.read(chunk_size):
+                yield chunk
 
-    raise HTTPException(status_code=404, detail="PDF 预览文件不存在")
+    return StreamingResponse(
+        file_iterator(),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f"inline; filename={pdf_path.name}",
+            "Accept-Ranges": "bytes",
+        },
+    )
+
+
+@router.get("/{doc_id}/download.pdf", summary="PDF 下载 (强制另存为)")
+async def download_pdf(doc_id: str):
+    pdf_path = _find_pdf(doc_id)
+    if pdf_path is None:
+        raise HTTPException(status_code=404, detail="PDF 文件不存在")
+    return FileResponse(
+        str(pdf_path),
+        media_type="application/pdf",
+        filename=pdf_path.name,
+    )
 
 
 @router.get("/{doc_id}/raw.docx", summary="获取原始 Word 文件")
