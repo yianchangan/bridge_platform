@@ -53,6 +53,7 @@ class DocumentBrief(BaseModel):
     doc_type: str
     status: DocStatus
     upload_time: str
+    uploaded_by: Optional[str] = None
     sections_count: int = 0
     progress: int = 0
 
@@ -64,6 +65,8 @@ class DocumentResponse(BaseModel):
     doc_type: str
     status: DocStatus
     upload_time: str
+    uploaded_by: Optional[str] = None
+    reviewed_by: Optional[str] = None
     file_path: Optional[str] = None
     pdf_path: Optional[str] = None
     md5: Optional[str] = None
@@ -93,6 +96,8 @@ class DocumentListItem(BaseModel):
     doc_type: str
     status: DocStatus
     upload_time: str
+    uploaded_by: Optional[str] = None
+    reviewed_by: Optional[str] = None
     sections_count: int = 0
     progress: int = 0
 

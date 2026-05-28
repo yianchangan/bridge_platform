@@ -27,6 +27,7 @@ async def upload_document(
     bridge_type: str = Form(..., description="桥型: 斜拉桥/悬索桥/拱桥/连续梁/连续刚构/综合工程/其它"),
     doc_type: str = Form(..., description="方案类型: 招投标方案/实施性施工组织方案/专项方案/作业指导书/技术交底书"),
     doc_title: str = Form(..., description="方案名称"),
+    uploaded_by: Optional[str] = Form(default=None, description="上传人"),
 ):
     if not file.filename or not file.filename.endswith(".docx"):
         raise HTTPException(status_code=400, detail="仅支持 .docx 格式的 Word 文件")
@@ -50,6 +51,7 @@ async def upload_document(
         bridge_type=bridge_type,
         doc_type=doc_type,
         md5=md5,
+        uploaded_by=uploaded_by,
     )
 
     # 移至正式目录
@@ -277,14 +279,51 @@ async def save_draft(doc_id: str, sections: list[SectionData]):
 # ---- 确认提交入库 ----
 
 @router.post("/{doc_id}/commit", summary="确认审核并提交入库")
-async def commit_document(doc_id: str):
+async def commit_document(
+    doc_id: str,
+    reviewed_by: Optional[str] = Form(default=None, description="审核人"),
+):
     doc = store.get_document(doc_id)
     if not doc:
         raise HTTPException(status_code=404, detail="文档不存在")
     if doc.status not in (DocStatus.pending_review, DocStatus.completed):
         raise HTTPException(status_code=400, detail="文档状态不允许入库")
-    store.commit_document(doc_id)
+    store.commit_document(doc_id, reviewed_by=reviewed_by)
+
+    # 后台触发向量索引入库
+    _index_document_background(doc_id)
+
     return {"success": True, "doc_id": doc_id}
+
+
+def _index_document_background(doc_id: str):
+    """后台向量索引入库"""
+    import threading
+
+    def worker():
+        try:
+            from app.services.indexer import DocumentIndexer
+            indexer = DocumentIndexer(
+                settings.index_db_path, settings.faiss_dir, settings.db_path
+            )
+            indexer.index_document(doc_id)
+        except Exception as e:
+            print(f"[索引] 文档 {doc_id} 后台入库失败: {e}")
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+
+
+@router.post("/{doc_id}/index", summary="手动触发向量索引入库")
+async def manual_index(doc_id: str):
+    doc = store.get_document(doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="文档不存在")
+    if doc.status != DocStatus.completed:
+        raise HTTPException(status_code=400, detail="文档未完成审核, 无法入库索引")
+
+    _index_document_background(doc_id)
+    return {"success": True, "doc_id": doc_id, "message": "已触发后台索引入库"}
 
 
 # ---- 删除文档 ----

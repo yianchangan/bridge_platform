@@ -47,6 +47,7 @@ class MemoryStore:
         file_path: Optional[str] = None,
         md5: Optional[str] = None,
         scanned_styles: Optional[dict] = None,
+        uploaded_by: Optional[str] = None,
     ) -> DocumentResponse:
         doc_id = new_doc_id()
         doc = {
@@ -56,6 +57,8 @@ class MemoryStore:
             "doc_type": doc_type,
             "status": DocStatus.uploaded.value,
             "upload_time": now_str(),
+            "uploaded_by": uploaded_by,
+            "reviewed_by": None,
             "file_path": file_path,
             "pdf_path": None,
             "md5": md5,
@@ -117,6 +120,8 @@ class MemoryStore:
                 doc_type=d["doc_type"],
                 status=d["status"],
                 upload_time=d["upload_time"],
+                uploaded_by=d.get("uploaded_by"),
+                reviewed_by=d.get("reviewed_by"),
                 sections_count=d["sections_count"],
                 progress=d["progress"],
             )
@@ -244,13 +249,15 @@ class MemoryStore:
             self._persist()
         return True
 
-    def commit_document(self, doc_id: str) -> bool:
+    def commit_document(self, doc_id: str, reviewed_by: Optional[str] = None) -> bool:
         """标记文档为已入库"""
         with self._lock:
             doc = self._documents.get(doc_id)
             if not doc:
                 return False
             doc["status"] = DocStatus.completed.value
+            if reviewed_by:
+                doc["reviewed_by"] = reviewed_by
             self._persist()
         return True
 

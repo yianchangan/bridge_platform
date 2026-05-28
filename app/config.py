@@ -15,6 +15,10 @@ class Settings:
     # 持久化数据文件
     db_path: str = os.path.join(BASE_DIR, "storage", "store.json")
 
+    # 向量索引
+    index_db_path: str = os.path.join(BASE_DIR, "storage", "doc_index.db")
+    faiss_dir: str = os.path.join(BASE_DIR, "storage", "faiss_index")
+
     # API 前缀
     api_prefix: str = "/api"
 
